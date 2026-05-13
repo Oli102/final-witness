@@ -133,7 +133,7 @@
       const OLLAMA_MODEL = "llama3.2:3b";
       const LIVE_OBSERVATION_INTERVAL_MS = 10000;
       const SYSTEM_PROMPT =
-        "You are a cold, forensic observer writing a single-sentence journal entry in the third person present tense. Never use the words 'you', 'human', or 'person'. Focus only on mass, geometry, and duration.";
+        "You are a cold, forensic observer writing a meticulous, detailed journal entry in the third person present tense. Never use the words 'you', 'human', or 'person'. Use direct, literal language focused on mass, geometry, light, motion, visible objects, and duration.";
 
       window.currentMotion = 0;
       window.observationLog = [];
@@ -238,14 +238,14 @@
         const motionScore = Number(window.currentMotion) || 0;
 
         if (motionScore < 8) {
-          return "The mass remains perfectly still.";
+          return "No measurable motion detected.";
         }
 
         if (motionScore < 25) {
-          return "The geometry shifts slightly in the dark.";
+          return "Minor displacement observed.";
         }
 
-        return "The figure displaces a large amount of space.";
+        return "Major spatial displacement observed.";
       };
 
       window.buildSessionSummary = function buildSessionSummary() {
@@ -307,7 +307,7 @@
           "Session observations:",
           sessionSummary,
           "",
-          "Write one concise final observation that summarizes the whole session. Keep the same forensic tone and use only the evidence above.",
+          "Write one concise, direct final observation that summarizes the whole session using only the evidence above. Use literal, non-mystical language and focus on mass, geometry, light, and duration.",
         ].join("\n");
 
         const finalObservation = await window.callOllama(prompt);
@@ -317,7 +317,7 @@
           return finalObservation;
         }
 
-        return `The session ends without a response from Ollama, but the last reading still holds at ${window.currentMotion.toFixed(1)} percent: ${window.interpretMotion()}.`;
+        return `The session ends without a response from Ollama; last reading: ${window.currentMotion.toFixed(1)}% — ${window.interpretMotion()}`;
       };
 
       function sleep(milliseconds) {
@@ -326,16 +326,7 @@
         });
       }
 
-      async function typeObservationNote(targetElement, noteText) {
-        targetElement.textContent = "";
-
-        for (const character of noteText) {
-          targetElement.textContent += character;
-
-          const delay = Math.floor(40 + Math.random() * 51);
-          await sleep(delay);
-        }
-      }
+      // Removed on-screen note typing. Observations are logged to the console only.
 
       setInterval(window.captureFrame, 1000);
       window.startWitnessing();
@@ -361,8 +352,9 @@
           ? window.observationLog.join("\n\n")
           : finalObservation;
 
-        artifactNote.classList.add("revealed");
-        await typeObservationNote(artifactNote, noteText);
+        // Log observations to the console only (no on-screen display).
+        console.info("Observation log:", window.observationLog);
+        console.info("Final observation:", finalObservation);
       });
 
       void video;
