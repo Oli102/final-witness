@@ -228,8 +228,10 @@
         return "The figure displaces a large amount of space.";
       };
 
-      window.callOllama = async function callOllama(motionString) {
+      window.callOllama = async function callOllama(sensorData) {
         try {
+          const prompt = "You are a cold, forensic observer. Write exactly one single-sentence journal entry in the third person present tense. Never use the words 'you', 'human', or 'person'. Focus only on mass, geometry, light, and duration. Here is the current sensor data: " + sensorData;
+          
           const response = await fetch("http://localhost:11434/api/generate", {
             method: "POST",
             headers: {
@@ -237,10 +239,8 @@
             },
             body: JSON.stringify({
               model: "llama3.2:3b",
-              system:
-                "You are a cold, forensic observer writing a single-sentence journal entry in the third person present tense. Never use the words 'you', 'human', or 'person'. Focus only on mass, geometry, and duration.",
-              prompt: motionString,
               stream: false,
+              prompt: prompt,
             }),
           });
 
@@ -256,7 +256,8 @@
           }
 
           return observationText;
-        } catch {
+        } catch (error) {
+          console.log(error);
           return null;
         }
       };
