@@ -78,6 +78,7 @@
       font-family: "Caveat", cursive;
       font-size: clamp(2rem, 4vw, 3.4rem);
       line-height: 1.05;
+      white-space: pre-wrap;
       transform: translate(-50%, 100vh);
       transition: transform 1.5s ease;
       will-change: transform;
@@ -129,9 +130,14 @@
       const blindsContainer = document.getElementById("blinds-container");
       const artifactNote = document.getElementById("artifact-note");
       const context = canvas.getContext("2d", { willReadFrequently: true });
+      const OLLAMA_MODEL = "llama3.2:3b";
+      const LIVE_OBSERVATION_INTERVAL_MS = 10000;
+      const SYSTEM_PROMPT =
+        "You are a cold, forensic observer writing a single-sentence journal entry in the third person present tense. Never use the words 'you', 'human', or 'person'. Focus only on mass, geometry, and duration.";
 
       window.currentMotion = 0;
       window.observationLog = [];
+      window.motionHistory = [];
       window.isObserving = true;
 
       let previousFrameData = null;
@@ -168,9 +174,14 @@
           }
 
           const motionString = window.interpretMotion();
-          await window.callOllama(motionString);
+          const observationText = await window.callOllama(motionString);
+
+          if (observationText) {
+            window.observationLog.push(observationText);
+          }
+
           window.triggerObservationLoop();
-        }, 30000);
+        }, LIVE_OBSERVATION_INTERVAL_MS);
       };
 
       window.captureFrame = function captureFrame() {
@@ -212,6 +223,15 @@
 
         window.currentMotion = pixelCount > 0 ? (changedPixels / pixelCount) * 100 : 0;
         previousFrameData = new Uint8ClampedArray(frameData);
+        window.motionHistory.push({
+          at: Date.now(),
+          score: window.currentMotion,
+          description: window.interpretMotion(),
+        });
+
+        if (window.motionHistory.length > 60) {
+          window.motionHistory.shift();
+        }
       };
 
       window.interpretMotion = function interpretMotion() {
@@ -228,19 +248,43 @@
         return "The figure displaces a large amount of space.";
       };
 
-      window.callOllama = async function callOllama(sensorData) {
+      window.buildSessionSummary = function buildSessionSummary() {
+        const recentSamples = window.motionHistory.slice(-12);
+
+        if (!recentSamples.length) {
+          return `- ${window.interpretMotion()} (${window.currentMotion.toFixed(1)}%)`;
+        }
+
+        return recentSamples
+          .map((sample) => {
+            const time = new Date(sample.at).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            });
+
+            return `- ${time}: ${sample.description} (${sample.score.toFixed(1)}%)`;
+          })
+          .join("\n");
+      };
+
+      window.callOllama = async function callOllama(motionString) {
         try {
-          const prompt = "You are a cold, forensic observer. Write exactly one single-sentence journal entry in the third person present tense. Never use the words 'you', 'human', or 'person'. Focus only on mass, geometry, light, and duration. Here is the current sensor data: " + sensorData;
-          
-          const response = await fetch("http://localhost:11434/api/generate", {
+          const response = await fetch("http://localhost:11434/api/chat", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              model: "llama3.2:3b",
+              model: OLLAMA_MODEL,
+              system: SYSTEM_PROMPT,
+              messages: [
+                {
+                  role: "user",
+                  content: motionString,
+                },
+              ],
               stream: false,
-              prompt: prompt,
             }),
           });
 
@@ -249,17 +293,31 @@
           }
 
           const payload = await response.json();
-          const observationText = payload?.response ?? "";
-
-          if (observationText) {
-            window.observationLog.push(observationText);
-          }
+          const observationText = payload?.message?.content ?? payload?.response ?? "";
 
           return observationText;
-        } catch (error) {
-          console.log(error);
+        } catch {
           return null;
         }
+      };
+
+      window.generateFinalObservation = async function generateFinalObservation() {
+        const sessionSummary = window.buildSessionSummary();
+        const prompt = [
+          "Session observations:",
+          sessionSummary,
+          "",
+          "Write one concise final observation that summarizes the whole session. Keep the same forensic tone and use only the evidence above.",
+        ].join("\n");
+
+        const finalObservation = await window.callOllama(prompt);
+
+        if (finalObservation) {
+          window.observationLog.push(finalObservation);
+          return finalObservation;
+        }
+
+        return `The session ends without a response from Ollama, but the last reading still holds at ${window.currentMotion.toFixed(1)} percent: ${window.interpretMotion()}.`;
       };
 
       function sleep(milliseconds) {
@@ -268,20 +326,11 @@
         });
       }
 
-      async function typeObservationNote(targetElement) {
-        const noteText = window.observationLog.join("\n\n");
-
-        targetElement.innerHTML = "";
+      async function typeObservationNote(targetElement, noteText) {
+        targetElement.textContent = "";
 
         for (const character of noteText) {
-          if (character === "\n") {
-            targetElement.innerHTML += "<br>";
-          } else {
-            targetElement.innerHTML += character
-              .replace(/&/g, "&amp;")
-              .replace(/</g, "&lt;")
-              .replace(/>/g, "&gt;");
-          }
+          targetElement.textContent += character;
 
           const delay = Math.floor(40 + Math.random() * 51);
           await sleep(delay);
@@ -307,8 +356,13 @@
 
         video.srcObject = null;
 
+        const finalObservation = await window.generateFinalObservation();
+        const noteText = window.observationLog.length
+          ? window.observationLog.join("\n\n")
+          : finalObservation;
+
         artifactNote.classList.add("revealed");
-        await typeObservationNote(artifactNote);
+        await typeObservationNote(artifactNote, noteText);
       });
 
       void video;
