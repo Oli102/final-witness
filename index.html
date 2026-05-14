@@ -190,6 +190,8 @@
 
           video.srcObject = stream;
           await video.play();
+          window.captureFrame();
+          await window.recordObservation();
           window.triggerObservationLoop();
         } catch {
           return;
@@ -239,6 +241,58 @@
         artifactNext.style.display = pageIndex < pages.length - 1 ? "block" : "none";
       };
 
+      window.buildObservationPrompt = function buildObservationPrompt() {
+        const recentHistory = window.motionHistory.slice(-8);
+        const historyText = recentHistory.length
+          ? recentHistory
+              .map((sample) => {
+                const time = new Date(sample.at).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                });
+
+                return `${time} | ${sample.score.toFixed(1)}% | ${sample.description}`;
+              })
+              .join("\n")
+          : "No motion history yet.";
+
+        return [
+          `Current motion score: ${window.currentMotion.toFixed(1)}%`,
+          `Current interpretation: ${window.interpretMotion()}`,
+          "Recent camera-derived motion samples:",
+          historyText,
+        ].join("\n");
+      };
+
+      window.buildLocalObservationParagraph = function buildLocalObservationParagraph() {
+        const recentHistory = window.motionHistory.slice(-8);
+        const historyText = recentHistory.length
+          ? recentHistory
+              .map((sample) => sample.description)
+              .join(" ")
+          : window.interpretMotion();
+
+        return [
+          `The camera records ${window.currentMotion.toFixed(1)}% motion as the frame settles into ${window.interpretMotion().toLowerCase()}.`,
+          `Recent samples repeat the same pressure across the image: ${historyText}`,
+          "The data remains tied to the camera feed, even when the model stays silent.",
+        ].join(" ");
+      };
+
+      window.recordObservation = async function recordObservation() {
+        const observationText = await window.callOllama(window.buildObservationPrompt());
+
+        if (observationText) {
+          return observationText;
+        }
+
+        const fallbackObservation = window.buildLocalObservationParagraph();
+        window.observationLog.push(fallbackObservation);
+
+        return fallbackObservation;
+      };
+
       artifactPrev.addEventListener("click", (e) => {
         e.stopPropagation();
         if (window.currentPage > 0) {
@@ -265,10 +319,7 @@
             return;
           }
 
-          const motionString = window.interpretMotion();
-          const observationText = await window.callOllama(motionString);
-
-          // observationText will be pushed inside callOllama
+          await window.recordObservation();
 
           window.triggerObservationLoop();
         }, LIVE_OBSERVATION_INTERVAL_MS);
@@ -410,7 +461,7 @@
           return finalObservation;
         }
 
-        const fallbackObservation = `The session ends without a response from Ollama; last reading: ${window.currentMotion.toFixed(1)}% — ${window.interpretMotion()}`;
+        const fallbackObservation = `The session closes with the camera still reading ${window.currentMotion.toFixed(1)}% motion; ${sessionSummary.replace(/^[-\s]*/, "")}`;
         window.observationLog.push(fallbackObservation);
         return fallbackObservation;
       };
