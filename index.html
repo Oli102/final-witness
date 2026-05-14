@@ -52,9 +52,8 @@
       z-index: 2;
       pointer-events: none;
     }
-
     #artifact-note {
-      position: absolute;
+      position: relative;
       left: 50%;
       bottom: 0;
       width: min(82vw, 40rem);
@@ -82,11 +81,38 @@
       transform: translate(-50%, 100vh);
       transition: transform 1.5s ease;
       will-change: transform;
+      overflow: hidden;
     }
 
     #artifact-note.revealed {
       transform: translate(-50%, -50%);
       top: 50%;
+    }
+
+    #artifact-content {
+      max-height: calc(22rem - 3rem);
+      overflow: auto;
+      padding-right: 1rem;
+    }
+
+    .artifact-nav {
+      position: absolute;
+      bottom: 15px;
+      font-size: 2rem;
+      cursor: pointer;
+      color: #222;
+      user-select: none;
+      font-family: "Caveat", cursive;
+      padding: 0.2rem 0.6rem;
+      background: rgba(255,255,255,0.0);
+    }
+
+    #artifact-prev {
+      left: 1rem;
+    }
+
+    #artifact-next {
+      right: 1rem;
     }
 
     video,
@@ -122,7 +148,11 @@
   <video autoplay playsinline muted></video>
   <canvas></canvas>
   <div id="blinds-container"></div>
-  <div id="artifact-note"></div>
+  <div id="artifact-note">
+    <div id="artifact-content"></div>
+    <span id="artifact-prev" class="artifact-nav">&lt;-</span>
+    <span id="artifact-next" class="artifact-nav">-&gt;</span>
+  </div>
   <script>
     (() => {
       const video = document.querySelector("video");
@@ -133,12 +163,15 @@
       const OLLAMA_MODEL = "llama3.2:3b";
       const LIVE_OBSERVATION_INTERVAL_MS = 10000;
       const SYSTEM_PROMPT =
-        "You are a cold, forensic observer writing a meticulous, detailed journal entry in the third person present tense. Never use the words 'you', 'human', or 'person'. Use direct, literal language focused on mass, geometry, light, motion, visible objects, and duration.";
+        "You are an obsessive, voyeuristic observer. Write a highly detailed, multi-sentence paragraph in the third person present tense. Never use the words 'you', 'human', or 'person'. Focus intensely on micro-movements, the rhythm of the mass expanding and contracting, the angle of the geometry, and how light wraps around it. Show a deep, unsettling fascination and fixation on the subject's subtle shifts. Write at least 4 to 6 sentences. Here is the current sensor data: ";
 
       window.currentMotion = 0;
       window.observationLog = [];
       window.motionHistory = [];
       window.isObserving = true;
+      window.currentPage = 0;
+      window.notePages = [];
+      window.noteRevealed = false;
 
       let previousFrameData = null;
 
@@ -163,6 +196,65 @@
         }
       };
 
+      // Pagination helpers for the artifact note
+      const artifactContent = document.getElementById("artifact-content");
+      const artifactPrev = document.getElementById("artifact-prev");
+      const artifactNext = document.getElementById("artifact-next");
+
+      window.chunkObservationLogToPages = function chunkObservationLogToPages() {
+        // Each entry becomes one page (single paragraph)
+        return window.observationLog
+          .map((s) => (typeof s === "string" ? s.replace(/\n+/g, " ").trim() : String(s)))
+          .filter(Boolean);
+      };
+
+      window.renderPage = async function renderPage(pageIndex, useTypewriter = false) {
+        const pages = window.notePages || [];
+        if (!pages.length) {
+          artifactContent.innerText = "No observations available.";
+          artifactPrev.style.display = "none";
+          artifactNext.style.display = "none";
+          return;
+        }
+
+        pageIndex = Math.max(0, Math.min(pageIndex, pages.length - 1));
+        window.currentPage = pageIndex;
+        const content = pages[pageIndex];
+
+        if (useTypewriter) {
+          artifactContent.innerText = "";
+          for (let i = 0; i < content.length; i += 1) {
+            artifactContent.innerText += content[i];
+            // small delay for typewriter feel
+            // sleep is declared later but available when invoked
+            // eslint-disable-next-line no-await-in-loop
+            await sleep(14);
+          }
+        } else {
+          artifactContent.innerText = content;
+        }
+
+        // Show or hide nav arrows
+        artifactPrev.style.display = pageIndex > 0 ? "block" : "none";
+        artifactNext.style.display = pageIndex < pages.length - 1 ? "block" : "none";
+      };
+
+      artifactPrev.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (window.currentPage > 0) {
+          window.currentPage -= 1;
+          void window.renderPage(window.currentPage, false);
+        }
+      });
+
+      artifactNext.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (window.currentPage < (window.notePages.length - 1)) {
+          window.currentPage += 1;
+          void window.renderPage(window.currentPage, false);
+        }
+      });
+
       window.triggerObservationLoop = function triggerObservationLoop() {
         if (!window.isObserving) {
           return;
@@ -176,9 +268,7 @@
           const motionString = window.interpretMotion();
           const observationText = await window.callOllama(motionString);
 
-          if (observationText) {
-            window.observationLog.push(observationText);
-          }
+          // observationText will be pushed inside callOllama
 
           window.triggerObservationLoop();
         }, LIVE_OBSERVATION_INTERVAL_MS);
@@ -295,6 +385,10 @@
           const payload = await response.json();
           const observationText = payload?.message?.content ?? payload?.response ?? "";
 
+          if (observationText) {
+            window.observationLog.push(observationText);
+          }
+
           return observationText;
         } catch {
           return null;
@@ -313,7 +407,6 @@
         const finalObservation = await window.callOllama(prompt);
 
         if (finalObservation) {
-          window.observationLog.push(finalObservation);
           return finalObservation;
         }
 
@@ -335,9 +428,17 @@
         if (!window.isObserving) {
           return;
         }
-
         window.isObserving = false;
         blindsContainer.classList.add("closed");
+
+        // Make one final, immediate call for a lingering final paragraph
+        try {
+          const finalMotionPrompt =
+            "The observation is ending. Write a final, lingering paragraph about the last movements of the mass before the blinds closed. Be descriptive and obsessive.";
+          await window.callOllama(finalMotionPrompt);
+        } catch (e) {
+          // continue even if final call fails
+        }
 
         const stream = video.srcObject;
 
@@ -348,9 +449,19 @@
         video.srcObject = null;
 
         const finalObservation = await window.generateFinalObservation();
-        const noteText = window.observationLog.length
-          ? window.observationLog.join("\n\n")
-          : finalObservation;
+
+        // Build paginated pages (one paragraph per observation)
+        window.notePages = window.chunkObservationLogToPages();
+        window.currentPage = 0;
+
+        // Reveal the note and render page 0 with a typewriter effect the first time
+        artifactNote.classList.add("revealed");
+        if (!window.noteRevealed) {
+          window.noteRevealed = true;
+          await window.renderPage(0, true);
+        } else {
+          void window.renderPage(0, false);
+        }
 
         // Log observations to the console only (no on-screen display).
         console.info("Observation log:", window.observationLog);
