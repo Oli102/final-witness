@@ -164,7 +164,7 @@
       const context = canvas.getContext("2d", { willReadFrequently: true });
       const visionCanvas = document.createElement("canvas");
       const visionContext = visionCanvas.getContext("2d", { willReadFrequently: true });
-      const OLLAMA_MODEL = "llama3.2-vision";
+      const OLLAMA_MODELS = ["moondream:latest", "moondream", "llama3.2-vision:11b", "llama3.2-vision", "llava:7b"];
       const LIVE_OBSERVATION_INTERVAL_MS = 10000;
       const SYSTEM_PROMPT =
         "You are an obsessive, voyeuristic observer. Write a highly detailed, multi-sentence paragraph in the third person present tense. Never use the words 'you', 'human', or 'person'. Focus intensely on micro-movements, the rhythm of the mass expanding and contracting, the angle of the geometry, and how light wraps around it. Show a deep, unsettling fascination and fixation on the subject's subtle shifts. Write at least 4 to 6 sentences. Here is the current sensor data: ";
@@ -434,44 +434,47 @@
       };
 
       window.callOllama = async function callOllama(promptText, imageData) {
-        try {
-          const userMessage = {
-            role: "user",
-            content: promptText,
-          };
+        const userMessage = {
+          role: "user",
+          content: promptText,
+        };
 
-          if (imageData) {
-            userMessage.images = [imageData];
-          }
-
-          const response = await fetch("http://localhost:11434/api/chat", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: OLLAMA_MODEL,
-              system: SYSTEM_PROMPT,
-              messages: [userMessage],
-              stream: false,
-            }),
-          });
-
-          if (!response.ok) {
-            return null;
-          }
-
-          const payload = await response.json();
-          const observationText = payload?.message?.content ?? payload?.response ?? "";
-
-          if (observationText) {
-            window.observationLog.push(observationText);
-          }
-
-          return observationText;
-        } catch {
-          return null;
+        if (imageData) {
+          userMessage.images = [imageData];
         }
+
+        for (const model of OLLAMA_MODELS) {
+          try {
+            const response = await fetch("http://localhost:11434/api/chat", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model,
+                system: SYSTEM_PROMPT,
+                messages: [userMessage],
+                stream: false,
+              }),
+            });
+
+            if (!response.ok) {
+              continue;
+            }
+
+            const payload = await response.json();
+            const observationText = (payload?.message?.content ?? payload?.response ?? "").trim();
+
+            if (observationText) {
+              window.observationLog.push(observationText);
+              return observationText;
+            }
+          } catch {
+            continue;
+          }
+        }
+
+        return null;
       };
 
       window.generateFinalObservation = async function generateFinalObservation() {
