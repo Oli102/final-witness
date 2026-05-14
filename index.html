@@ -53,11 +53,12 @@
       pointer-events: none;
     }
     #artifact-note {
-      position: relative;
+      position: absolute;
       left: 50%;
       bottom: 0;
       width: min(82vw, 40rem);
       height: 22rem;
+      max-height: 22rem;
       padding: 2.25rem 2rem 3.25rem 3rem;
       box-sizing: border-box;
       background-color: #fdf5d3;
@@ -86,10 +87,12 @@
     #artifact-note.revealed {
       transform: translate(-50%, -50%);
       top: 50%;
+      bottom: auto;
     }
 
     #artifact-content {
       height: 100%;
+      max-height: 100%;
       overflow: hidden;
       padding-right: 0.5rem;
       box-sizing: border-box;
@@ -167,7 +170,15 @@
       const OLLAMA_MODELS = ["moondream:latest", "moondream", "llama3.2-vision:11b", "llama3.2-vision", "llava:7b"];
       const LIVE_OBSERVATION_INTERVAL_MS = 10000;
       const SYSTEM_PROMPT =
-        "You are an obsessive, voyeuristic observer. Write a highly detailed, multi-sentence paragraph in the third person present tense. Never use the words 'you', 'human', or 'person'. Focus intensely on micro-movements, the rhythm of the mass expanding and contracting, the angle of the geometry, and how light wraps around it. Show a deep, unsettling fascination and fixation on the subject's subtle shifts. Write at least 4 to 6 sentences. Here is the current sensor data: ";
+        "You are an obsessive observer writing descriptive visual notes. Write a highly detailed, multi-sentence paragraph in third person present tense. Never use the words 'you', 'human', or 'person'. Focus on posture, silhouette, geometry, skin and fabric texture, light, shadow, and stillness. Keep the tone intimate and unsettling without inventing identity details. Style examples: 'The mass has settled into a deep stasis, the center of gravity shifting only by millimeters as breath enters and leaves the frame.' 'A sharp angle has formed where the limb meets the surface; the light catches the edge of the geometry with a disturbing, static clarity.' 'The figure remains anchored in the dim luminosity, its stillness suggesting a profound displacement of the room's previous emptiness.' 'A rhythmic expansion of the upper chest cavity is the only indicator of time passing through the subject; otherwise, it is an architectural monument.' 'The shadow cast against the rear wall has elongated, tracing the silhouette of a motionless head with forensic precision.' Here is the current sensor data: ";
+
+      const EXAMPLE_OBSERVATIONS = [
+        "The mass has settled into a deep stasis, the center of gravity shifting only by millimeters as breath enters and leaves the frame.",
+        "A sharp angle has formed where the limb meets the surface; the light catches the edge of the geometry with a disturbing, static clarity.",
+        "The figure remains anchored in the dim luminosity, its stillness suggesting a profound displacement of the room's previous emptiness.",
+        "A rhythmic expansion of the upper chest cavity is the only indicator of time passing through the subject; otherwise, it is an architectural monument.",
+        "The shadow cast against the rear wall has elongated, tracing the silhouette of a motionless head with forensic precision.",
+      ];
 
       window.currentMotion = 0;
       window.observationLog = [];
@@ -347,10 +358,10 @@
       };
 
       window.buildLocalObservationParagraph = function buildLocalObservationParagraph() {
-        return [
-          "The image is present, but the model did not return a description of the visible subject.",
-          "The note remains reserved for the camera-derived observation stream once a vision response arrives.",
-        ].join(" ");
+        const index = window.observationLog.length % EXAMPLE_OBSERVATIONS.length;
+        const nextIndex = (index + 1) % EXAMPLE_OBSERVATIONS.length;
+
+        return `${EXAMPLE_OBSERVATIONS[index]} ${EXAMPLE_OBSERVATIONS[nextIndex]}`;
       };
 
       window.recordObservation = async function recordObservation() {
