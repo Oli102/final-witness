@@ -162,7 +162,9 @@
       const blindsContainer = document.getElementById("blinds-container");
       const artifactNote = document.getElementById("artifact-note");
       const context = canvas.getContext("2d", { willReadFrequently: true });
-      const OLLAMA_MODEL = "llama3.2:3b";
+      const visionCanvas = document.createElement("canvas");
+      const visionContext = visionCanvas.getContext("2d", { willReadFrequently: true });
+      const OLLAMA_MODEL = "llama3.2-vision";
       const LIVE_OBSERVATION_INTERVAL_MS = 10000;
       const SYSTEM_PROMPT =
         "You are an obsessive, voyeuristic observer. Write a highly detailed, multi-sentence paragraph in the third person present tense. Never use the words 'you', 'human', or 'person'. Focus intensely on micro-movements, the rhythm of the mass expanding and contracting, the angle of the geometry, and how light wraps around it. Show a deep, unsettling fascination and fixation on the subject's subtle shifts. Write at least 4 to 6 sentences. Here is the current sensor data: ";
@@ -342,7 +344,16 @@
         canvas.height = video.videoHeight;
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         try {
-          window.lastFrameImage = canvas.toDataURL("image/jpeg", 0.82).split(",")[1] || null;
+          const maxDimension = 768;
+          const scale = Math.min(1, maxDimension / Math.max(canvas.width, canvas.height));
+          visionCanvas.width = Math.max(1, Math.round(canvas.width * scale));
+          visionCanvas.height = Math.max(1, Math.round(canvas.height * scale));
+          if (visionContext) {
+            visionContext.drawImage(canvas, 0, 0, visionCanvas.width, visionCanvas.height);
+            window.lastFrameImage = visionCanvas.toDataURL("image/jpeg", 0.75).split(",")[1] || null;
+          } else {
+            window.lastFrameImage = canvas.toDataURL("image/jpeg", 0.75).split(",")[1] || null;
+          }
         } catch {
           window.lastFrameImage = null;
         }
