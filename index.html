@@ -57,8 +57,8 @@
       left: 50%;
       bottom: 0;
       width: min(82vw, 40rem);
-      min-height: 22rem;
-      padding: 2.25rem 2rem 3.5rem 3rem;
+      height: 22rem;
+      padding: 2.25rem 2rem 3.25rem 3rem;
       box-sizing: border-box;
       background-color: #fdf5d3;
       background-image: repeating-linear-gradient(
@@ -77,7 +77,6 @@
       font-family: "Caveat", cursive;
       font-size: clamp(2rem, 4vw, 3.4rem);
       line-height: 1.05;
-      white-space: pre-wrap;
       transform: translate(-50%, 100vh);
       transition: transform 1.5s ease;
       will-change: transform;
@@ -95,6 +94,7 @@
       padding-right: 0.5rem;
       box-sizing: border-box;
       word-break: break-word;
+      white-space: pre-wrap;
     }
 
     .artifact-nav {
@@ -207,12 +207,103 @@
       const artifactContent = document.getElementById("artifact-content");
       const artifactPrev = document.getElementById("artifact-prev");
       const artifactNext = document.getElementById("artifact-next");
+      const pageProbe = document.createElement("div");
+
+      pageProbe.style.position = "absolute";
+      pageProbe.style.visibility = "hidden";
+      pageProbe.style.pointerEvents = "none";
+      pageProbe.style.left = "-99999px";
+      pageProbe.style.top = "0";
+      pageProbe.style.boxSizing = "border-box";
+      pageProbe.style.whiteSpace = "pre-wrap";
+      pageProbe.style.wordBreak = "break-word";
+      pageProbe.style.overflow = "hidden";
+      document.body.appendChild(pageProbe);
 
       window.chunkObservationLogToPages = function chunkObservationLogToPages() {
-        // Each entry becomes one page (single paragraph)
-        return window.observationLog
-          .map((s) => (typeof s === "string" ? s.replace(/\n+/g, " ").trim() : String(s)))
+        const observations = window.observationLog
+          .map((s) => (typeof s === "string" ? s.replace(/\s+/g, " ").trim() : String(s)))
           .filter(Boolean);
+
+        if (!observations.length) {
+          return [];
+        }
+
+        const combinedText = observations.join("\n\n");
+        return window.splitTextIntoPages(combinedText);
+      };
+
+      window.splitTextIntoPages = function splitTextIntoPages(text) {
+        const pages = [];
+        const noteWidth = artifactNote.clientWidth - 32;
+        const noteHeight = artifactNote.clientHeight;
+        const availableHeight = noteHeight - 104;
+        const computedStyle = window.getComputedStyle(artifactContent);
+        const fontSize = computedStyle.fontSize;
+        const fontFamily = computedStyle.fontFamily;
+        const lineHeight = computedStyle.lineHeight;
+        const lineHeightValue = lineHeight === "normal" ? "1.05" : lineHeight;
+
+        pageProbe.style.width = `${Math.max(100, noteWidth)}px`;
+        pageProbe.style.height = `${Math.max(100, availableHeight)}px`;
+        pageProbe.style.padding = "0";
+        pageProbe.style.fontSize = fontSize;
+        pageProbe.style.fontFamily = fontFamily;
+        pageProbe.style.lineHeight = lineHeightValue;
+
+        const paragraphs = String(text)
+          .replace(/\r\n/g, "\n")
+          .split(/\n{2,}/)
+          .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
+          .filter(Boolean);
+
+        const splitParagraphIntoPages = (paragraph) => {
+          const words = paragraph.split(/\s+/).filter(Boolean);
+          let currentPageText = "";
+
+          for (const word of words) {
+            const candidate = currentPageText ? `${currentPageText} ${word}` : word;
+            pageProbe.textContent = candidate;
+
+            if (pageProbe.scrollHeight > availableHeight && currentPageText) {
+              pages.push(currentPageText.trim());
+              currentPageText = word;
+              pageProbe.textContent = currentPageText;
+
+              if (pageProbe.scrollHeight > availableHeight) {
+                const chars = word.split("");
+                let partialWord = "";
+
+                for (const character of chars) {
+                  const charCandidate = partialWord + character;
+                  pageProbe.textContent = charCandidate;
+
+                  if (pageProbe.scrollHeight > availableHeight && partialWord) {
+                    pages.push(partialWord);
+                    partialWord = character;
+                  } else {
+                    partialWord = charCandidate;
+                  }
+                }
+
+                currentPageText = partialWord;
+                pageProbe.textContent = currentPageText;
+              }
+            } else {
+              currentPageText = candidate;
+            }
+          }
+
+          if (currentPageText.trim()) {
+            pages.push(currentPageText.trim());
+          }
+        };
+
+        for (const paragraph of paragraphs) {
+          splitParagraphIntoPages(paragraph);
+        }
+
+        return pages;
       };
 
       window.renderPage = async function renderPage(pageIndex, useTypewriter = false) {
@@ -221,7 +312,6 @@
           artifactContent.innerText = "No observations available.";
           artifactPrev.style.display = "none";
           artifactNext.style.display = "none";
-          window.fitArtifactContent();
           return;
         }
 
@@ -242,33 +332,9 @@
           artifactContent.innerText = content;
         }
 
-        await window.fitArtifactContent();
-
         // Show or hide nav arrows
         artifactPrev.style.display = pageIndex > 0 ? "block" : "none";
         artifactNext.style.display = pageIndex < pages.length - 1 ? "block" : "none";
-      };
-
-      window.fitArtifactContent = async function fitArtifactContent() {
-        const noteHeight = artifactNote.clientHeight;
-        const horizontalPadding = 5;
-        const verticalPadding = 84;
-        const maxHeight = Math.max(0, noteHeight - verticalPadding);
-        let fontSize = 54;
-        artifactContent.style.fontSize = `${fontSize}px`;
-        artifactContent.style.lineHeight = "1.02";
-        artifactContent.style.overflow = "hidden";
-
-        await new Promise((resolve) => window.requestAnimationFrame(resolve));
-
-        while (fontSize > 24 && artifactContent.scrollHeight > maxHeight) {
-          fontSize -= 2;
-          artifactContent.style.fontSize = `${fontSize}px`;
-          await new Promise((resolve) => window.requestAnimationFrame(resolve));
-        }
-
-        artifactContent.style.maxHeight = `${maxHeight}px`;
-        artifactContent.style.width = `calc(100% - ${horizontalPadding}px)`;
       };
 
       window.buildObservationPrompt = function buildObservationPrompt() {
@@ -414,21 +480,15 @@
       };
 
       window.buildSessionSummary = function buildSessionSummary() {
-        const recentSamples = window.motionHistory.slice(-12);
+        const recentObservations = window.observationLog.slice(-12);
 
-        if (!recentSamples.length) {
-          return `- ${window.interpretMotion()}`;
+        if (!recentObservations.length) {
+          return "No visual observations recorded yet.";
         }
 
-        return recentSamples
+        return recentObservations
           .map((sample) => {
-            const time = new Date(sample.at).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-            });
-
-            return `- ${time}: ${sample.description}`;
+            return `- ${String(sample).replace(/\s+/g, " ").trim()}`;
           })
           .join("\n");
       };
