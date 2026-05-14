@@ -58,7 +58,7 @@
       bottom: 0;
       width: min(82vw, 40rem);
       min-height: 22rem;
-      padding: 2.25rem 2rem 2rem 3rem;
+      padding: 2.25rem 2rem 3.5rem 3rem;
       box-sizing: border-box;
       background-color: #fdf5d3;
       background-image: repeating-linear-gradient(
@@ -90,9 +90,11 @@
     }
 
     #artifact-content {
-      max-height: calc(22rem - 3rem);
-      overflow: auto;
-      padding-right: 1rem;
+      height: 100%;
+      overflow: hidden;
+      padding-right: 0.5rem;
+      box-sizing: border-box;
+      word-break: break-word;
     }
 
     .artifact-nav {
@@ -172,6 +174,7 @@
       window.currentPage = 0;
       window.notePages = [];
       window.noteRevealed = false;
+      window.lastFrameImage = null;
 
       let previousFrameData = null;
 
@@ -216,6 +219,7 @@
           artifactContent.innerText = "No observations available.";
           artifactPrev.style.display = "none";
           artifactNext.style.display = "none";
+          window.fitArtifactContent();
           return;
         }
 
@@ -236,52 +240,56 @@
           artifactContent.innerText = content;
         }
 
+        await window.fitArtifactContent();
+
         // Show or hide nav arrows
         artifactPrev.style.display = pageIndex > 0 ? "block" : "none";
         artifactNext.style.display = pageIndex < pages.length - 1 ? "block" : "none";
       };
 
+      window.fitArtifactContent = async function fitArtifactContent() {
+        const noteHeight = artifactNote.clientHeight;
+        const horizontalPadding = 5;
+        const verticalPadding = 84;
+        const maxHeight = Math.max(0, noteHeight - verticalPadding);
+        let fontSize = 54;
+        artifactContent.style.fontSize = `${fontSize}px`;
+        artifactContent.style.lineHeight = "1.02";
+        artifactContent.style.overflow = "hidden";
+
+        await new Promise((resolve) => window.requestAnimationFrame(resolve));
+
+        while (fontSize > 24 && artifactContent.scrollHeight > maxHeight) {
+          fontSize -= 2;
+          artifactContent.style.fontSize = `${fontSize}px`;
+          await new Promise((resolve) => window.requestAnimationFrame(resolve));
+        }
+
+        artifactContent.style.maxHeight = `${maxHeight}px`;
+        artifactContent.style.width = `calc(100% - ${horizontalPadding}px)`;
+      };
+
       window.buildObservationPrompt = function buildObservationPrompt() {
-        const recentHistory = window.motionHistory.slice(-8);
-        const historyText = recentHistory.length
-          ? recentHistory
-              .map((sample) => {
-                const time = new Date(sample.at).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                });
-
-                return `${time} | ${sample.score.toFixed(1)}% | ${sample.description}`;
-              })
-              .join("\n")
-          : "No motion history yet.";
-
         return [
-          `Current motion score: ${window.currentMotion.toFixed(1)}%`,
-          `Current interpretation: ${window.interpretMotion()}`,
-          "Recent camera-derived motion samples:",
-          historyText,
+          "Describe the visible subject and scene from the camera image in a single detailed paragraph.",
+          "Focus on posture, stance, silhouette, clothing, hands, face orientation, hair, lighting, and other visible physical details.",
+          "Do not mention motion, displacement, sensors, programs, cameras, or identity.",
+          "Use only what is directly visible in the image. Do not infer or assume anything beyond the visible details.",
         ].join("\n");
       };
 
       window.buildLocalObservationParagraph = function buildLocalObservationParagraph() {
-        const recentHistory = window.motionHistory.slice(-8);
-        const historyText = recentHistory.length
-          ? recentHistory
-              .map((sample) => sample.description)
-              .join(" ")
-          : window.interpretMotion();
-
         return [
-          `The camera records ${window.currentMotion.toFixed(1)}% motion as the frame settles into ${window.interpretMotion().toLowerCase()}.`,
-          `Recent samples repeat the same pressure across the image: ${historyText}`,
-          "The data remains tied to the camera feed, even when the model stays silent.",
+          "The image is present, but the model did not return a description of the visible subject.",
+          "The note remains reserved for the camera-derived observation stream once a vision response arrives.",
         ].join(" ");
       };
 
       window.recordObservation = async function recordObservation() {
-        const observationText = await window.callOllama(window.buildObservationPrompt());
+        const observationText = await window.callOllama(
+          window.buildObservationPrompt(),
+          window.lastFrameImage,
+        );
 
         if (observationText) {
           return observationText;
@@ -333,6 +341,11 @@
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        try {
+          window.lastFrameImage = canvas.toDataURL("image/jpeg", 0.82).split(",")[1] || null;
+        } catch {
+          window.lastFrameImage = null;
+        }
 
         let frameData;
 
@@ -379,21 +392,21 @@
         const motionScore = Number(window.currentMotion) || 0;
 
         if (motionScore < 8) {
-          return "No measurable motion detected.";
+          return "The frame appears visually steady.";
         }
 
         if (motionScore < 25) {
-          return "Minor displacement observed.";
+          return "Small visible changes are present in the frame.";
         }
 
-        return "Major spatial displacement observed.";
+        return "Strong visible changes are present in the frame.";
       };
 
       window.buildSessionSummary = function buildSessionSummary() {
         const recentSamples = window.motionHistory.slice(-12);
 
         if (!recentSamples.length) {
-          return `- ${window.interpretMotion()} (${window.currentMotion.toFixed(1)}%)`;
+          return `- ${window.interpretMotion()}`;
         }
 
         return recentSamples
@@ -404,13 +417,22 @@
               second: "2-digit",
             });
 
-            return `- ${time}: ${sample.description} (${sample.score.toFixed(1)}%)`;
+            return `- ${time}: ${sample.description}`;
           })
           .join("\n");
       };
 
-      window.callOllama = async function callOllama(motionString) {
+      window.callOllama = async function callOllama(promptText, imageData) {
         try {
+          const userMessage = {
+            role: "user",
+            content: promptText,
+          };
+
+          if (imageData) {
+            userMessage.images = [imageData];
+          }
+
           const response = await fetch("http://localhost:11434/api/chat", {
             method: "POST",
             headers: {
@@ -419,12 +441,7 @@
             body: JSON.stringify({
               model: OLLAMA_MODEL,
               system: SYSTEM_PROMPT,
-              messages: [
-                {
-                  role: "user",
-                  content: motionString,
-                },
-              ],
+              messages: [userMessage],
               stream: false,
             }),
           });
@@ -452,16 +469,16 @@
           "Session observations:",
           sessionSummary,
           "",
-          "Write one concise, direct final observation that summarizes the whole session using only the evidence above. Use literal, non-mystical language and focus on mass, geometry, light, and duration.",
+          "Write one concise, direct final observation that summarizes the visible subject using only what is directly seen in the camera image. Focus on posture, silhouette, clothing, hands, face orientation, and lighting.",
         ].join("\n");
 
-        const finalObservation = await window.callOllama(prompt);
+        const finalObservation = await window.callOllama(prompt, window.lastFrameImage);
 
         if (finalObservation) {
           return finalObservation;
         }
 
-        const fallbackObservation = `The session closes with the camera still reading ${window.currentMotion.toFixed(1)}% motion; ${sessionSummary.replace(/^[-\s]*/, "")}`;
+        const fallbackObservation = `The session closes with the image still active; ${sessionSummary.replace(/^[-\s]*/, "")}`;
         window.observationLog.push(fallbackObservation);
         return fallbackObservation;
       };
@@ -487,8 +504,8 @@
         // Make one final, immediate call for a lingering final paragraph
         try {
           const finalMotionPrompt =
-            "The observation is ending. Write a final, lingering paragraph about the last movements of the mass before the blinds closed. Be descriptive and obsessive.";
-          await window.callOllama(finalMotionPrompt);
+            "The observation is ending. Write a final, lingering paragraph about the visible subject before the blinds closed. Be descriptive, specific, and focused on posture, silhouette, clothing, hands, face orientation, and lighting.";
+          await window.callOllama(finalMotionPrompt, window.lastFrameImage);
         } catch (e) {
           // continue even if final call fails
         }
